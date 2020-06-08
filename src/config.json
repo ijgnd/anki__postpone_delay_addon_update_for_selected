@@ -1,3 +1,9 @@
 {
-    "default for updates since last check": false
+    "default for updates since last check": false,
+    "diff: ask the user about diffing": false,
+    "diff: block Anki by using subprocess.run": false,
+    "diff: command/program": "C:\\Program Files\\WinMerge\\WinMergeU.exe",
+    "diff: command/programm parameters": ["/r"],
+    "diff: run the command": true,
+    "diff: instead of a temp folder use and overwrite this folder": false
 }
