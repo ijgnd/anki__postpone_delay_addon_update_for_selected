@@ -17,6 +17,7 @@ from PyQt5 import QtCore
 from anki.httpclient import HttpClient
 from anki.hooks import wrap
 from anki.lang import _
+from anki.utils import isWin
 import aqt
 from aqt.addons import (
     AddonsDialog,
@@ -27,7 +28,11 @@ from aqt.addons import (
 from aqt.qt import (
     QWidget,
 )
-from aqt.utils import askUser, showInfo
+from aqt.utils import (
+    askUser,
+    showInfo,
+    tooltip,
+)
 
 
 from .checkdialog import CheckDialog
@@ -52,7 +57,7 @@ creator_for_nids = invert_the_dict(some_creators_and_their_addons)
 
 
 today_candidates = {}
-tempfolder = None
+targetfolder = None
 
 
 def date_fmted(epoch):
@@ -131,19 +136,31 @@ update_box_label_already_postponed = ("""
 """)
 
 
-def diffmessage(customfolder):
+def sync_command(targetfolder):
+    root = aqt.mw.addonManager.addonsFolder()
+    if isWin:
+        # for robocopy folders may not contain trailing slashes
+        cmd = f'''robocopy "{root}" "{targetfolder}" /MIR'''
+    else:
+        # add trailing slash to source
+        root = os.path.join(root, '')
+        cmd = f'''rsync -a --delete "{root}" "{targetfolder}" '''
+    if "\n" in cmd:
+        return None
+    return cmd
+
+
+def diffmessage(synccmd):
     msg = fmt("""
 After downloading the new add-ons they are installed directly. But they are
 only active after you restart Anki. This allows you to check/compare/diff the
 newly downloaded versions before they are executed on your machine.
 DOUBLE
-To do this this add-on can copy the current addon folder to a temporary
-folder and then call the diff program you set in the config. This will take
-some time and requires sufficient free space on the partition that holds your
-temp folder.
+To do this this add-on can copy/sync the current addon folder to a temporary
+folder and then call the diff program you set in the config.
 DOUBLE
 """)
-    if customfolder:
+    if gc("diff: instead of a temp folder use and overwrite this folder"):
         msg += fmt("""
 In the add-on config you've set a custom folder for the temporary copy
 of the pre-update version of your add-ons. If this folder exists its
@@ -159,38 +176,26 @@ you can also set a 'permanent temp' folder in the add-on config that's always
 overwritten.
 DOUBLE
 """)
-    msg += "Click 'Yes' to copy and diff, 'No' to just download and install."
+    msg += fmt(f"""
+This add-on will run the following command using the python subprocess module to 
+sync the addons folder to the temporary folder. This command will also delete
+files if necessary. Make sure to verify the following command before you continue. If you
+don't understand the following command don't run this command. If there's an error in the
+following command it might delete all your files - not just your Anki files but ALL files
+on your computer! Use it at your own risk.
+DOUBLE
+{synccmd}
+DOUBLE
+"Click 'Yes' to copy and diff, 'No' to just download and install.
+"""
+    )
+
     return msg
 
 
-def copy_old_versions_to_temp(customfolder, ids):
-    global tempfolder
+def copy_old_versions_to_temp(synccmd):
     aqt.mw.progress.start(immediate=True)
-    if customfolder:
-        tempfolder = customfolder
-        # I originally had
-        #    shutil.rmtree(customfolder)
-        #    os.makedirs(customfolder)
-        # But in Windows 10 with 2.1.26 in 2020-06 I get
-        #      os.makedirs(customfolder)
-        #      File "os.py", line 221, in makedirs
-        #      PermissionError: [WinError 5] Access is denied: 'C:\\Users\\ij\\Downloads\\addons21'
-        # But the permissions seem to be set correctly?
-        # So I manually create the folder outside of Anki and then never delete it.
-        for root, dirs, files in os.walk(customfolder):
-            for f in files:
-                os.unlink(os.path.join(root, f))
-            for d in dirs:
-                shutil.rmtree(os.path.join(root, d))
-    else:
-        tempfolder = tempfile.mkdtemp()
-    root = aqt.mw.addonManager.addonsFolder()
-    for d in ids:
-        source = os.path.join(root, str(d))  # no check needed, ids is a list of ints
-        if not os.path.isdir(source):  # sanity check
-            continue
-        dest = os.path.join(tempfolder, str(d))
-        shutil.copytree(source, dest)
+    subprocess.run(synccmd, shell=True)
     aqt.mw.progress.finish()
 
 
@@ -202,7 +207,7 @@ def my_prompt_to_update(
     on_done: Callable[[List[DownloadLogEntry]], None],
 ) -> None:
     global today_candidates
-    global tempfolder
+    global targetfolder
 
     previous_addons = pickleload(addons_pickle)  # dict: id: [epoch, "string: addon-name (last update)"]
     if previous_addons:
@@ -227,18 +232,26 @@ def my_prompt_to_update(
         picklesave(new_previous_addons, addons_pickle)
 
         if ids and gc("diff: ask the user about diffing"):
-            customfolder = gc("diff: instead of a temp folder use and overwrite this folder")
-            if askUser(diffmessage(customfolder)):
-                copy_old_versions_to_temp(customfolder, ids)
+            targetfolder = gc("diff: instead of a temp folder use and overwrite this folder")
+            if not targetfolder:
+                targetfolder = tempfile.mkdtemp()
+            if targetfolder.endswith("\\") and isWin:
+                tooltip("adjust the config: folders in robosync may not end with a backlash.")
+            else:
+                synccmd = sync_command(targetfolder)
+                if synccmd is None:
+                    tooltip("The sync command to run may not contain linebreaks. Aborting ...")
+                elif askUser(diffmessage(synccmd)):
+                    copy_old_versions_to_temp(synccmd)
         download_addons(parent, mgr, ids, on_done, client)
 aqt.addons.prompt_to_update = my_prompt_to_update
 
 
 #def after_downloading(self, log: List[DownloadLogEntry]):
 def do_diff_after_downloading(self, log: List[DownloadLogEntry]):
-    global tempfolder
+    global targetfolder
 
-    if not tempfolder:
+    if not targetfolder:
         return
 
     tool = gc("diff: command/program")
@@ -248,14 +261,14 @@ def do_diff_after_downloading(self, log: List[DownloadLogEntry]):
         sub_cmd = subprocess.run
     else:
         sub_cmd = subprocess.call
-    shellcmd = " ".join([tool, argsstr, tempfolder, aqt.mw.addonManager.addonsFolder()])
+    shellcmd = " ".join([tool, argsstr, targetfolder, aqt.mw.addonManager.addonsFolder()])
     if gc("diff: run the command"):
         cmdlist = [tool, ]
         if args:
             cmdlist.extend(args)
-        cmdlist.extend([tempfolder, aqt.mw.addonManager.addonsFolder()])
+        cmdlist.extend([targetfolder, aqt.mw.addonManager.addonsFolder()])
         sub_cmd(cmdlist)
     else:
         showInfo(shellcmd, title="Anki:diff command to run")
-    tempfolder = None
+    targetfolder = None
 AddonsDialog.after_downloading = wrap(AddonsDialog.after_downloading, do_diff_after_downloading)
