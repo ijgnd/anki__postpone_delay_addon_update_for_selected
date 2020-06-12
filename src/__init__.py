@@ -254,6 +254,9 @@ def do_diff_after_downloading(self, log: List[DownloadLogEntry]):
     if not targetfolder:
         return
 
+    if not gc("diff: ask the user about diffing"):
+        return
+
     tool = gc("diff: command/program")
     args = gc("diff: command/programm parameters", [])
     argsstr = " ".join(args) if args else ""
