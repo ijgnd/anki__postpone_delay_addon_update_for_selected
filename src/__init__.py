@@ -86,7 +86,8 @@ def my_handle_update_info(
     on_done: Callable[[List[DownloadLogEntry]], None],
 ) -> None:
     global today_candidates
-    today_candidates = {} # empty it in case I run updates twice in a row while the add-on manager window is open
+    # empty it in case I run updates twice in a row while the add-on manager window is open
+    today_candidates = {}
 
     update_info = mgr.extract_update_info(items)
     mgr.update_supported_versions(update_info)
@@ -111,6 +112,88 @@ def my_handle_update_info(
 aqt.addons.handle_update_info = my_handle_update_info
 
 
+def fmt(string_):
+    return string_.replace("\n", " ").replace("DOUBLE", "\n\n").lstrip(" ").replace("\n\n ", "\n\n")
+
+
+update_box_label_new_ones = ("""
+<div>Updateable add-ons that have been <b>newly updated</b> since the last user prompt.</div>
+<div style="margin-left: 40px; margin-top: 0px;">- The release date is listed in parentheses.</div>
+<div style="margin-left: 40px; margin-top: 0px;">- This list is sorted by add-on name.</div>
+<div style="margin-left: 40px; margin-top: 0px;">- Selected Add-ons will be updated.</div>
+""")
+update_box_label_already_postponed = ("""
+<div>Updateable add-ons that you <b>postponed the last time</b>.</div>
+<div style="margin-left: 40px; margin-top: 0px;">- The release date is listed in parentheses.</div>
+<div style="margin-left: 40px; margin-top: 0px;">- This list is sorted by the update date
+(in reversed order) which means the youngest update is on top.</div>
+<div style="margin-left: 40px; margin-top: 0px;">- Selected Add-ons will be updated.</div>
+""")
+
+
+def diffmessage(customfolder):
+    msg = fmt("""
+After downloading the new add-ons they are installed directly. But they are
+only active after you restart Anki. This allows you to check/compare/diff the
+newly downloaded versions before they are executed on your machine.
+DOUBLE
+To do this this add-on can copy the current addon folder to a temporary
+folder and then call the diff program you set in the config. This will take
+some time and requires sufficient free space on the partition that holds your
+temp folder.
+DOUBLE
+""")
+    if customfolder:
+        msg += fmt("""
+In the add-on config you've set a custom folder for the temporary copy
+of the pre-update version of your add-ons. If this folder exists its
+contents will be overwritten without any more questions.
+DOUBLE
+""")
+    else:
+        msg += fmt("""
+This add-on will not delete the temporary add-on folder later.
+If you don't empty the add-on folder or if it's not emptied automatically this
+addon will waste a lot of disk space in the long run. To avoid this problem
+you can also set a 'permanent temp' folder in the add-on config that's always
+overwritten.
+DOUBLE
+""")
+    msg += "Click 'Yes' to copy and diff, 'No' to just download and install."
+    return msg
+
+
+def copy_old_versions_to_temp(customfolder, ids):
+    global tempfolder
+    aqt.mw.progress.start(immediate=True)
+    if customfolder:
+        tempfolder = customfolder
+        # I originally had
+        #    shutil.rmtree(customfolder)
+        #    os.makedirs(customfolder)
+        # But in Windows 10 with 2.1.26 in 2020-06 I get
+        #      os.makedirs(customfolder)
+        #      File "os.py", line 221, in makedirs
+        #      PermissionError: [WinError 5] Access is denied: 'C:\\Users\\ij\\Downloads\\addons21'
+        # But the permissions seem to be set correctly?
+        # So I manually create the folder outside of Anki and then never delete it.
+        for root, dirs, files in os.walk(customfolder):
+            for f in files:
+                os.unlink(os.path.join(root, f))
+            for d in dirs:
+                shutil.rmtree(os.path.join(root, d))
+    else:
+        tempfolder = tempfile.mkdtemp()
+    root = aqt.mw.addonManager.addonsFolder()
+    for d in ids:
+        source = os.path.join(root, str(d))  # no check needed, ids is a list of ints
+        if not os.path.isdir(source):  # sanity check
+            continue
+        dest = os.path.join(tempfolder, str(d))
+        shutil.copytree(source, dest)
+    aqt.mw.progress.finish()
+
+
 def my_prompt_to_update(
     parent: QWidget,
     mgr: AddonManager,
@@ -121,85 +204,32 @@ def my_prompt_to_update(
     global today_candidates
     global tempfolder
 
-    previous_addons = pickleload(addons_pickle) # dict: id: [epoch, "string: addon-name (last update)"]
+    previous_addons = pickleload(addons_pickle)  # dict: id: [epoch, "string: addon-name (last update)"]
     if previous_addons:
         for aID, vals in previous_addons.items():
             if aID in today_candidates:
                 if vals[0] == today_candidates[aID][0]:  # unchanged
                     del today_candidates[aID]
 
-    l_1 = ("""<div>Updateable add-ons that have been <b>newly updated</b> since the last user prompt.</div>"""
-           """<div style="margin-left: 40px; margin-top: 0px;">- The release date is listed in parentheses.</div>"""
-           """<div style="margin-left: 40px; margin-top: 0px;">- This list is sorted by add-on name.</div>"""
-           """<div style="margin-left: 40px; margin-top: 0px;">- Selected Add-ons will be updated.</div>"""
-          )
-    l_2 = ("""<div>Updateable add-ons that you <b>postponed the last time</b>.</div>"""
-           """<div style="margin-left: 40px; margin-top: 0px;">- The release date is listed in parentheses.</div>"""
-           """<div style="margin-left: 40px; margin-top: 0px;">- This list is sorted by the update date (in reversed order) which means the youngest update is on top.</div>"""
-           """<div style="margin-left: 40px; margin-top: 0px;">- Selected Add-ons will be updated.</div>"""
-          )
     d = CheckDialog(
         parent=None,
-        label1=l_1,
-        valuedict1=to_list_for_display(today_candidates, gc("default for updates since last check"), True),
-        label2=l_2,
-        valuedict2=to_list_for_display(previous_addons, False, False),
+        label1=update_box_label_new_ones,
+        dict1=to_list_for_display(today_candidates, gc("default for updates since last check"), True),
+        label2=update_box_label_already_postponed,
+        dict2=to_list_for_display(previous_addons, False, False),
         windowtitle="Anki: Select add-ons to update",
     )
     if d.exec():
         ids = []
         new_previous_addons = {}
-        ids, new_previous_addons = process_gui_out(ids, new_previous_addons, d.valuedict1, today_candidates)
-        ids, new_previous_addons = process_gui_out(ids, new_previous_addons, d.valuedict2, previous_addons)
+        ids, new_previous_addons = process_gui_out(ids, new_previous_addons, d.dict1, today_candidates)
+        ids, new_previous_addons = process_gui_out(ids, new_previous_addons, d.dict2, previous_addons)
         picklesave(new_previous_addons, addons_pickle)
 
         if ids and gc("diff: ask the user about diffing"):
-            msg = ("After downloading the new add-ons they are installed directly. But they are "
-                   "only active after you restart Anki. This allows you to check/compare/diff the "
-                   "newly downloaded versions before they are executed on your machine. To "
-                   "do this this add-on can copy the current addon folder to a tempoary "
-                   "folder and then call the diff program you set in the config. This will take "
-                   "some time and requires sufficient free space on the partition that holds your "
-                   "temp folder."
-            )
             customfolder = gc("diff: instead of a temp folder use and overwrite this folder")
-            if customfolder:
-                msg += ("In the add-on config you've set a custom folder for the temporary copy "
-                        "of the pre-update version of your add-ons. If this folder exists its "
-                        "contents will be overwritten without any more questions." 
-                        )
-            else:
-                msg += ("This add-on will not delete the temporary add-on folder later. "
-                        "If you don't empty the add-on folder or if it's not emptied automatically this "
-                        "addon will waste a lot of disk space in the long run. To avoid this problem "
-                        "you can also set a 'permanent temp' folder in the add-on config that's always "
-                        "overwritten."
-                        )
-            msg += "Click 'Yes' to copy and diff, 'No' to just download and install."
-            if askUser(msg):
-                aqt.mw.progress.start(immediate=True)
-                if customfolder:
-                    tempfolder = customfolder
-                    # I originally had
-                    #    shutil.rmtree(customfolder)
-                    #    os.makedirs(customfolder)
-                    # But in Windows 10 with 2.1.26 in 2020-06 I get
-                    #      os.makedirs(customfolder)
-                    #      File "os.py", line 221, in makedirs
-                    #      PermissionError: [WinError 5] Access is denied: 'C:\\Users\\ijgnd\\Downloads\\addons21'
-                    # But the permissions seem to be set correctly?
-                    # So I manully create the folder outside of Anki and then never delete it.
-                    for root, dirs, files in os.walk(customfolder):
-                        for f in files:
-                            os.unlink(os.path.join(root, f))
-                        for d in dirs:
-                            shutil.rmtree(os.path.join(root, d))
-                else:
-                    tempfolder = tempfile.mkdtemp()
-                # shutil.copytree dirs_exist_ok is new in 3.8, 
-                # shutil.copytree(aqt.mw.addonManager.addonsFolder(), tempfolder, dirs_exist_ok=True)
-                copy_tree(aqt.mw.addonManager.addonsFolder(), tempfolder)               
-                aqt.mw.progress.finish()
+            if askUser(diffmessage(customfolder)):
+                copy_old_versions_to_temp(customfolder, ids)
         download_addons(parent, mgr, ids, on_done, client)
 aqt.addons.prompt_to_update = my_prompt_to_update
 
@@ -229,5 +259,3 @@ def do_diff_after_downloading(self, log: List[DownloadLogEntry]):
         showInfo(shellcmd, title="Anki:diff command to run")
     tempfolder = None
 AddonsDialog.after_downloading = wrap(AddonsDialog.after_downloading, do_diff_after_downloading)
-
-

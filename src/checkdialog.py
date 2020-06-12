@@ -19,12 +19,12 @@ dialogname = "addon_download_delayer_addon_selector"
 
 
 class CheckDialog(QDialog):
-    def __init__(self, parent=None, label1="", valuedict1=None, label2="", valuedict2=None, windowtitle=""):
+    def __init__(self, parent=None, label1="", dict1=None, label2="", dict2=None, windowtitle=""):
         super().__init__(parent)
         if windowtitle:
             self.setWindowTitle(windowtitle)
-        self.valuedict1 = valuedict1
-        self.valuedict2 = valuedict2
+        self.dict1 = dict1
+        self.dict2 = dict2
         self.text_for_label1 = label1
         self.text_for_label2 = label2
         self.setupUI()
@@ -48,10 +48,10 @@ class CheckDialog(QDialog):
         vlay = QVBoxLayout()
         label1 = QLabel(self.text_for_label1)
         label1.setWordWrap(True)
-        self.listWidget1 = self.setupListWidget(self.valuedict1)
+        self.listWidget1 = self.setupListWidget(self.dict1)
         label2 = QLabel(self.text_for_label2)
         label2.setWordWrap(True)
-        self.listWidget2 = self.setupListWidget(self.valuedict2)
+        self.listWidget2 = self.setupListWidget(self.dict2)
         buttonbox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttonbox.accepted.connect(self.onAccept)
         buttonbox.rejected.connect(self.onReject)
@@ -68,8 +68,8 @@ class CheckDialog(QDialog):
             indict[text] = True if widget.item(i).checkState() else False
 
     def onAccept(self):
-        self.process_selection(self.listWidget1, self.valuedict1)
-        self.process_selection(self.listWidget2, self.valuedict2)
+        self.process_selection(self.listWidget1, self.dict1)
+        self.process_selection(self.listWidget2, self.dict2)
         saveGeom(self, dialogname)
         self.accept()
 
