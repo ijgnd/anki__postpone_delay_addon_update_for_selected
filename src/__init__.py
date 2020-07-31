@@ -263,7 +263,7 @@ def do_diff_after_downloading(self, log: List[DownloadLogEntry]):
     if gc("diff: block Anki by using subprocess.run"):
         sub_cmd = subprocess.run
     else:
-        sub_cmd = subprocess.call
+        sub_cmd = subprocess.Popen
     shellcmd = " ".join([tool, argsstr, targetfolder, aqt.mw.addonManager.addonsFolder()])
     if gc("diff: run the command"):
         cmdlist = [tool, ]
