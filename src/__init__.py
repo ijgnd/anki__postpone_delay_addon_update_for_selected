@@ -260,6 +260,12 @@ def do_diff_after_downloading(self, log: List[DownloadLogEntry]):
     tool = gc("diff: command/program")
     args = gc("diff: command/programm parameters", [])
     argsstr = " ".join(args) if args else ""
+    
+    env = os.environ.copy()
+    toremove = ['LD_LIBRARY_PATH', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH']
+    for e in toremove:
+        env.pop(e, None)
+    
     if gc("diff: block Anki by using subprocess.run"):
         sub_cmd = subprocess.run
     else:
@@ -272,7 +278,7 @@ def do_diff_after_downloading(self, log: List[DownloadLogEntry]):
                 if a and isinstance(a, str):
                     cmdlist.append(a)
         cmdlist.extend([targetfolder, aqt.mw.addonManager.addonsFolder()])
-        sub_cmd(cmdlist)
+        sub_cmd(cmdlist, env=env)
     else:
         showInfo(shellcmd, title="Anki:diff command to run")
     targetfolder = None
