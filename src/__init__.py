@@ -268,7 +268,9 @@ def do_diff_after_downloading(self, log: List[DownloadLogEntry]):
     if gc("diff: run the command"):
         cmdlist = [tool, ]
         if args:
-            cmdlist.extend(args)
+            for a in args:  # handle e.g. [""]
+                if a and isinstance(a, str):
+                    cmdlist.append(a)
         cmdlist.extend([targetfolder, aqt.mw.addonManager.addonsFolder()])
         sub_cmd(cmdlist)
     else:
