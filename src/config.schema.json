@@ -1,0 +1,43 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "postpone/delay addon update for selected addons",
+    "properties": {
+        "default for updates since last check": {
+            "type": "boolean",
+            "default": false,
+            "description": ""
+        },
+        "diff: ask the user about diffing": {
+            "type": "boolean",
+            "default": false,
+            "description": ""
+        },
+        "diff: block Anki by using subprocess.run": {
+            "type": "boolean",
+            "default": false,
+            "description": ""
+        },
+        "diff: command/program": {
+            "type": "string",
+            "default": "C:\\Program Files\\WinMerge\\WinMergeU.exe",
+            "description": ""
+        },
+        "diff: command/programm parameters": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "diff: run the command": {
+            "type": "boolean",
+            "default": false,
+            "description": ""
+        },
+        "diff: instead of a temp folder use and overwrite this folder": {
+            "type": ["boolean", "string"],
+            "default": false,
+            "description": ""
+        }
+    }
+}
