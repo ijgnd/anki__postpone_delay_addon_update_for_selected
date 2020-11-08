@@ -79,7 +79,14 @@ def process_gui_out(ids, previous_addons, gui_dict, source_dict):
                 if state:
                     ids.append(aID)
                 else:
-                    previous_addons[aID] = [vals[0], label]
+                    # store the latest upload date for postponed version of add-on 
+                    # the dict previous_addons (if not empty) has this structure: 
+                    # {id: [upload_time_epoch, name-with-humanreadable-format],}
+                    # e.g.
+                    # {1788670778: [1602825573, 'CrowdAnki JSON  (2020-10-16 07:19)'],   
+                    #  1781298089: [1604760201, 'Searching PDF Reading (2020-11-07 15:43)']}
+                    if (aID in previous_addons and (vals[0] > previous_addons[aID][0])) or aID not in previous_addons:
+                        previous_addons[aID] = [vals[0], label]
     return ids, previous_addons
 
 
@@ -211,6 +218,7 @@ def my_prompt_to_update(
 
     previous_addons = pickleload(addons_pickle)  # dict: id: [epoch, "string: addon-name (last update)"]
     if previous_addons:
+        # don't list versions as new that were already postponed
         for aID, vals in previous_addons.items():
             if aID in today_candidates:
                 if vals[0] == today_candidates[aID][0]:  # unchanged
@@ -227,6 +235,11 @@ def my_prompt_to_update(
     if d.exec():
         ids = []
         new_previous_addons = {}
+        # the dict new_previous_addons (if not empty) has this structure: 
+        # {id: [upload_time_epoch, name-with-humanreadable-format],}
+        # e.g.
+        # {1788670778: [1602825573, 'CrowdAnki JSON  (2020-10-16 07:19)'],   
+        #  1781298089: [1604760201, 'Searching PDF Reading (2020-11-07 15:43)']}
         ids, new_previous_addons = process_gui_out(ids, new_previous_addons, d.dict1, today_candidates)
         ids, new_previous_addons = process_gui_out(ids, new_previous_addons, d.dict2, previous_addons)
         picklesave(new_previous_addons, addons_pickle)
